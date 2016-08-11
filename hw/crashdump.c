@@ -55,6 +55,7 @@ open_crashdump(void)
 
         if (asprintf(&path, "%s/%s", crashdump_dir, de->d_name) == -1) {
             fprintf(logfile, "cannot allocate memory\n");
+            path = NULL;
             goto fail;
         }
 
@@ -87,6 +88,7 @@ open_crashdump(void)
     for (e = nr_files; e < nr_files * 2 + 1; e++) {
         if (asprintf(&path, "%s/%d", crashdump_dir, e) < 0) {
             fprintf(logfile, "allocating memory: %s\n", strerror(errno));
+            path = NULL;
             goto fail;
         }
 
@@ -109,15 +111,14 @@ open_crashdump(void)
         goto fail;
     }
 
+    if (!path)
+        goto fail;
     crashdump_path = path;
     crashdump_fd = fd;
     return;
 
 fail:
-    if (path != NULL) {
-        free(path);
-        path = NULL;
-    }
+    free(path);
 
     if (d != NULL) {
         closedir(d);

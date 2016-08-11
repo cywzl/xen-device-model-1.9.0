@@ -932,6 +932,8 @@ static CharDriverState *qemu_chr_open_pty(void)
     s = qemu_mallocz(sizeof(PtyCharDriver));
 
     if (openpty(&s->fd, &slave_fd, pty_name, NULL, NULL) < 0) {
+        qemu_free(s);
+        qemu_free(chr);
         return NULL;
     }
 

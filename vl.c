@@ -4215,8 +4215,6 @@ static void select_vgahw (const char *p)
         vmsvga_enabled = 1;
         vgpu_enabled = 0;
     } else if (strstart(p, "passthrough", &opts)) {
-        cirrus_vga_enabled = 0;
-        std_vga_enabled = 0;
         vmsvga_enabled = 0;
         gfx_passthru = 1;
         vgpu_enabled = 0;

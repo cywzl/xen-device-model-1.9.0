@@ -50,7 +50,13 @@ typedef struct {
     target_phys_addr_t sg_cur_byte;
     QEMUIOVector iov;
     QEMUBH *bh;
+    int in_use;
 } DMAAIOCB;
+
+static void dma_aio_cb_reset(DMAAIOCB *p)
+{
+    p->in_use = 0;
+}
 
 static void dma_bdrv_cb(void *opaque, int ret);
 
@@ -60,6 +66,10 @@ static void reschedule_dma(void *opaque)
 
     qemu_bh_delete(dbs->bh);
     dbs->bh = NULL;
+
+    if (!dbs->in_use)
+        return;
+
     dma_bdrv_cb(opaque, 0);
 }
 
@@ -67,7 +77,8 @@ static void continue_after_map_failure(void *opaque)
 {
     DMAAIOCB *dbs = (DMAAIOCB *)opaque;
 
-    dbs->bh = qemu_bh_new(reschedule_dma, dbs);
+    if (!dbs->bh)
+        dbs->bh = qemu_bh_new(reschedule_dma, dbs);
     qemu_bh_schedule(dbs->bh);
 }
 
@@ -97,6 +108,7 @@ void dma_bdrv_cb(void *opaque, int ret)
         dbs->common.cb(dbs->common.opaque, ret);
         qemu_iovec_destroy(&dbs->iov);
         qemu_aio_release(dbs);
+        dma_aio_cb_reset(dbs);
         return;
     }
 
@@ -129,6 +141,7 @@ void dma_bdrv_cb(void *opaque, int ret)
     if (!dbs->acb) {
         dma_bdrv_unmap(dbs);
         qemu_iovec_destroy(&dbs->iov);
+        dma_aio_cb_reset(dbs);
         return;
     }
 }
@@ -148,6 +161,7 @@ static BlockDriverAIOCB *dma_bdrv_io(
     dbs->sg_cur_byte = 0;
     dbs->is_write = is_write;
     dbs->bh = NULL;
+    dbs->in_use = 1;
     qemu_iovec_init(&dbs->iov, sg->nsg);
     dma_bdrv_cb(dbs, 0);
     if (!dbs->acb) {

@@ -1,7 +1,7 @@
 Summary: qemu-dm device model
 Name: xen-device-model
 Version: 1.9.0
-Release: 183.7624
+Release: 202.7659
 License: GPL
 Group: System/Hypervisor
 Source0: xen-device-model-%{version}.tar.bz2
@@ -39,6 +39,6 @@ rm -rf $RPM_BUILD_ROOT
 %dir /var/xen/qemu
 
 %changelog
-* Tue Dec 09 2014 Citrix Systems, Inc. <www.citrix.com> [1.9.0 183.7624]
+* Tue Apr 28 2015 Citrix Systems, Inc. <www.citrix.com> [1.9.0 202.7659]
 - Build ioemu.
 

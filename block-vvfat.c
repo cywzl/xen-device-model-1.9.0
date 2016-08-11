@@ -753,6 +753,7 @@ static int read_directory(BDRVVVFATState* s, int mapping_index)
         if (st.st_size > 0x7fffffff) {
 	    fprintf(stderr, "File %s is larger than 2GB\n", buffer);
 	    free(buffer);
+            closedir(dir);
 	    return -2;
         }
 	direntry->size=cpu_to_le32(S_ISDIR(st.st_mode)?0:st.st_size);
@@ -780,6 +781,8 @@ static int read_directory(BDRVVVFATState* s, int mapping_index)
 	    s->current_mapping->read_only =
 		(st.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) == 0;
 	}
+        else
+            qemu_free(buffer);
     }
     closedir(dir);
 
@@ -1762,7 +1765,7 @@ static int check_directory_consistency(BDRVVVFATState *s,
 
 	if (s->used_clusters[cluster_num] & USED_ANY) {
 	    fprintf(stderr, "cluster %d used more than once\n", (int)cluster_num);
-	    return 0;
+	    goto fail;
 	}
 	s->used_clusters[cluster_num] = USED_DIRECTORY;
 
@@ -2222,11 +2225,15 @@ static int commit_one_file(BDRVVVFATState* s,
     if (fd < 0) {
 	fprintf(stderr, "Could not open %s... (%s, %d)\n", mapping->path,
 		strerror(errno), errno);
+	qemu_free(cluster);
 	return fd;
     }
     if (offset > 0)
-	if (lseek(fd, offset, SEEK_SET) != offset)
+	if (lseek(fd, offset, SEEK_SET) != offset) {
+	    close(fd);
+	    qemu_free(cluster);
 	    return -3;
+	}
 
     while (offset < size) {
 	uint32_t c1;
@@ -2242,11 +2249,17 @@ static int commit_one_file(BDRVVVFATState* s,
 	ret = vvfat_read(s->bs, cluster2sector(s, c),
 	    (uint8_t*)cluster, (rest_size + 0x1ff) / 0x200);
 
-	if (ret < 0)
+	if (ret < 0) {
+	    close(fd);
+	    qemu_free(cluster);
 	    return ret;
+	}
 
-	if (qemu_write_ok(fd, cluster, rest_size) < 0)
+	if (qemu_write_ok(fd, cluster, rest_size) < 0) {
+	    close(fd);
+	    qemu_free(cluster);
 	    return -2;
+	}
 
 	offset += rest_size;
 	c = c1;
@@ -2254,6 +2267,7 @@ static int commit_one_file(BDRVVVFATState* s,
 
     ftruncate(fd, size);
     close(fd);
+    qemu_free(cluster);
 
     return commit_mappings(s, first_cluster, dir_index);
 }

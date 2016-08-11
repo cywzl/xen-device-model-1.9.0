@@ -1054,8 +1054,10 @@ static int net_tap_init(VLANState *vlan, const char *model,
     if (!setup_script || !strcmp(setup_script, "no"))
         setup_script = "";
     if (setup_script[0] != '\0') {
-	if (launch_script(setup_script, ifname, script_arg, fd))
+	if (launch_script(setup_script, ifname, script_arg, fd)) {
+	    close(fd);
 	    return -1;
+	}
     }
     s = net_tap_fd_init(vlan, model, name, fd);
     if (!s)
@@ -1320,8 +1322,10 @@ static NetSocketState *net_socket_fd_init_dgram(VLANState *vlan,
 {
     struct sockaddr_in saddr;
     int newfd;
-    socklen_t saddr_len;
+    socklen_t saddr_len = sizeof(saddr);
     NetSocketState *s;
+
+    memset(&saddr, 0, sizeof(saddr));
 
     /* fd passed: multicast: "learn" dgram_dst address from bound address and save it
      * Because this may be "shared" socket from a "master" process, datagrams would be recv()
@@ -1464,6 +1468,7 @@ static int net_socket_listen_init(VLANState *vlan,
     fd = socket(PF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         perror("socket");
+        qemu_free(s);
         return -1;
     }
     socket_set_nonblock(fd);
@@ -1475,11 +1480,15 @@ static int net_socket_listen_init(VLANState *vlan,
     ret = bind(fd, (struct sockaddr *)&saddr, sizeof(saddr));
     if (ret < 0) {
         perror("bind");
+        closesocket(fd);
+        qemu_free(s);
         return -1;
     }
     ret = listen(fd, 0);
     if (ret < 0) {
         perror("listen");
+        closesocket(fd);
+        qemu_free(s);
         return -1;
     }
     s->vlan = vlan;

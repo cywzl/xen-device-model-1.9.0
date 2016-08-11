@@ -919,8 +919,11 @@ static void ide_set_signature(IDEState *s)
     }
 }
 
+
+static void ide_dma_cancel(BMDMAState *bm);
 static inline void ide_abort_command(IDEState *s)
 {
+    if (s->bmdma) ide_dma_cancel(s->bmdma);
     s->status = READY_STAT | ERR_STAT;
     s->error = ABRT_ERR;
 }
@@ -1098,6 +1101,7 @@ static void dma_buf_commit(IDEState *s, int is_write)
 
 static void ide_dma_error(IDEState *s)
 {
+    if (s->bmdma) ide_dma_cancel(s->bmdma);
     ide_transfer_stop(s);
     s->error = ABRT_ERR;
     s->status = READY_STAT | ERR_STAT;
@@ -1230,7 +1234,7 @@ static void ide_read_dma_cb(void *opaque, int ret)
 	return;
     }
 
-    if (!s->bs) return; /* ouch! (see ide_flush_cb) */
+    if (!s || !s->bs) return; /* ouch! (see ide_dma_error & ide_flush_cb) */
 
     n = s->io_buffer_size >> 9;
     sector_num = ide_get_sector(s);
@@ -1371,7 +1375,7 @@ static void ide_write_dma_cb(void *opaque, int ret)
             return;
     }
 
-    if (!s->bs) return; /* ouch! (see ide_flush_cb) */
+    if (!s || !s->bs) return; /* ouch! (see ide_dma_error & ide_flush_cb) */
 
     n = s->io_buffer_size >> 9;
     sector_num = ide_get_sector(s);
@@ -3742,7 +3746,6 @@ void pci_cmd646_ide_init(PCIBus *bus, BlockDriverState **hd_table,
     PCIIDEState *d;
     uint8_t *pci_conf;
     int i;
-    qemu_irq *irq;
 
     d = (PCIIDEState *)pci_register_device(bus, "CMD646 IDE",
                                            sizeof(PCIIDEState),
@@ -3784,9 +3787,8 @@ void pci_cmd646_ide_init(PCIBus *bus, BlockDriverState **hd_table,
     for(i = 0; i < 4; i++)
         d->ide_if[i].pci_dev = (PCIDevice *)d;
 
-    irq = qemu_allocate_irqs(cmd646_set_irq, d, 2);
-    ide_init2(&d->ide_if[0], hd_table[0], hd_table[1], irq[0]);
-    ide_init2(&d->ide_if[2], hd_table[2], hd_table[3], irq[1]);
+    ide_init2(&d->ide_if[0], hd_table[0], hd_table[1], qemu_allocate_irq(cmd646_set_irq, d));
+    ide_init2(&d->ide_if[2], hd_table[2], hd_table[3], qemu_allocate_irq(cmd646_set_irq, d));
 
     register_savevm("ide", 0, 3, pci_ide_save, pci_ide_load, d);
     qemu_register_reset(cmd646_reset, d);
@@ -4860,7 +4862,7 @@ struct pcmcia_card_s *dscm1xxxx_init(BlockDriverState *bdrv)
     md->card.cis = dscm1xxxx_cis;
     md->card.cis_len = sizeof(dscm1xxxx_cis);
 
-    ide_init2(md->ide, bdrv, 0, qemu_allocate_irqs(md_set_irq, md, 1)[0]);
+    ide_init2(md->ide, bdrv, 0, qemu_allocate_irq(md_set_irq, md));
     md->ide->is_cf = 1;
     md->ide->mdata_size = METADATA_SIZE;
     md->ide->mdata_storage = (uint8_t *) qemu_mallocz(METADATA_SIZE);

@@ -224,7 +224,6 @@ static int cow_create(const char *filename, int64_t image_sectors,
 
         fd = open(image_filename, O_RDONLY | O_BINARY);
         if (fd < 0) {
-            close(cow_fd);
             goto mtime_fail;
         }
         if (fstat(fd, &st) != 0) {

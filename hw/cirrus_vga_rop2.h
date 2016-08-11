@@ -25,13 +25,16 @@
 #if DEPTH == 8
 #define PUTPIXEL()    ROP_OP((dst_base + m(d))[0], col)
 #elif DEPTH == 16
-#define PUTPIXEL()    ROP_OP(((uint16_t *)(dst_base + m(d)))[0], col);
+#define n(x) ((x) & s->cirrus_addr_mask & 0xfffffffe)
+#define PUTPIXEL()    ROP_OP(((uint16_t *)(dst_base + n(d)))[0], col);
 #elif DEPTH == 24
-#define PUTPIXEL()    ROP_OP((dst_base + m(d))[0], col); \
-                      ROP_OP((dst_base + m(d))[1], (col >> 8)); \
-                      ROP_OP((dst_base + m(d))[2], (col >> 16))
+#define n(x) ((x) & s->cirrus_addr_mask & 0xfffffffc)
+#define PUTPIXEL()    ROP_OP((dst_base + n(d))[0], col); \
+                      ROP_OP((dst_base + n(d))[1], (col >> 8)); \
+                      ROP_OP((dst_base + n(d))[2], (col >> 16))
 #elif DEPTH == 32
-#define PUTPIXEL()    ROP_OP(((uint32_t *)(dst_base + m(d)))[0], col)
+#define n(x) ((x) & s->cirrus_addr_mask & 0xfffffffc)
+#define PUTPIXEL()    ROP_OP(((uint32_t *)(dst_base + n(d)))[0], col)
 #else
 #error unsupported DEPTH
 #endif
@@ -311,5 +314,6 @@ glue(glue(glue(cirrus_fill_, ROP_NAME), _),DEPTH)
     }
 }
 
+#undef n
 #undef DEPTH
 #undef PUTPIXEL

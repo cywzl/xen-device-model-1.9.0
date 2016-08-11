@@ -521,6 +521,93 @@ static void vga_ioport_write(void *opaque, uint32_t addr, uint32_t val)
 }
 
 #ifdef CONFIG_BOCHS_VBE
+/*
+ * Sanity check vbe register writes.
+ *
+ * As we don't have a way to signal errors to the guest in the bochs
+ * dispi interface we'll go adjust the registers to the closest valid
+ * value.
+ */
+static void vbe_fixup_regs(VGAState *s)
+{
+    uint16_t *r = s->vbe_regs;
+    uint32_t bits, linelength, maxy, offset;
+
+    if (!(r[VBE_DISPI_INDEX_ENABLE] & VBE_DISPI_ENABLED)) {
+        /* vbe is turned off -- nothing to do */
+        return;
+    }
+
+    /* check depth */
+    switch (r[VBE_DISPI_INDEX_BPP]) {
+    case 4:
+    case 8:
+    case 16:
+    case 24:
+    case 32:
+        bits = r[VBE_DISPI_INDEX_BPP];
+        break;
+    case 15:
+        bits = 16;
+        break;
+    default:
+        bits = r[VBE_DISPI_INDEX_BPP] = 8;
+        break;
+    }
+
+    /* check width */
+    r[VBE_DISPI_INDEX_XRES] &= ~7u;
+    if (r[VBE_DISPI_INDEX_XRES] == 0) {
+        r[VBE_DISPI_INDEX_XRES] = 8;
+    }
+    if (r[VBE_DISPI_INDEX_XRES] > VBE_DISPI_MAX_XRES) {
+        r[VBE_DISPI_INDEX_XRES] = VBE_DISPI_MAX_XRES;
+    }
+    r[VBE_DISPI_INDEX_VIRT_WIDTH] &= ~7u;
+    if (r[VBE_DISPI_INDEX_VIRT_WIDTH] > VBE_DISPI_MAX_XRES) {
+        r[VBE_DISPI_INDEX_VIRT_WIDTH] = VBE_DISPI_MAX_XRES;
+    }
+    if (r[VBE_DISPI_INDEX_VIRT_WIDTH] < r[VBE_DISPI_INDEX_XRES]) {
+        r[VBE_DISPI_INDEX_VIRT_WIDTH] = r[VBE_DISPI_INDEX_XRES];
+    }
+
+    /* check height */
+    linelength = r[VBE_DISPI_INDEX_VIRT_WIDTH] * bits / 8;
+    maxy = s->vram_size / linelength;
+    if (r[VBE_DISPI_INDEX_YRES] == 0) {
+        r[VBE_DISPI_INDEX_YRES] = 1;
+    }
+    if (r[VBE_DISPI_INDEX_YRES] > VBE_DISPI_MAX_YRES) {
+        r[VBE_DISPI_INDEX_YRES] = VBE_DISPI_MAX_YRES;
+    }
+    if (r[VBE_DISPI_INDEX_YRES] > maxy) {
+        r[VBE_DISPI_INDEX_YRES] = maxy;
+    }
+
+    /* check offset */
+    if (r[VBE_DISPI_INDEX_X_OFFSET] > VBE_DISPI_MAX_XRES) {
+        r[VBE_DISPI_INDEX_X_OFFSET] = VBE_DISPI_MAX_XRES;
+    }
+    if (r[VBE_DISPI_INDEX_Y_OFFSET] > VBE_DISPI_MAX_YRES) {
+        r[VBE_DISPI_INDEX_Y_OFFSET] = VBE_DISPI_MAX_YRES;
+    }
+    offset = r[VBE_DISPI_INDEX_X_OFFSET] * bits / 8;
+    offset += r[VBE_DISPI_INDEX_Y_OFFSET] * linelength;
+    if (offset + r[VBE_DISPI_INDEX_YRES] * linelength > s->vram_size) {
+        r[VBE_DISPI_INDEX_Y_OFFSET] = 0;
+        offset = r[VBE_DISPI_INDEX_X_OFFSET] * bits / 8;
+        if (offset + r[VBE_DISPI_INDEX_YRES] * linelength > s->vram_size) {
+            r[VBE_DISPI_INDEX_X_OFFSET] = 0;
+            offset = 0;
+        }
+    }
+
+    /* update vga state */
+    r[VBE_DISPI_INDEX_VIRT_HEIGHT] = maxy;
+    s->vbe_line_offset = linelength;
+    s->vbe_start_addr  = offset / 4;
+}
+
 static uint32_t vbe_ioport_read_index(void *opaque, uint32_t addr)
 {
     VGAState *s = opaque;
@@ -588,22 +675,13 @@ static void vbe_ioport_write_data(void *opaque, uint32_t addr, uint32_t val)
             }
             break;
         case VBE_DISPI_INDEX_XRES:
-            if ((val <= VBE_DISPI_MAX_XRES) && ((val & 7) == 0)) {
-                s->vbe_regs[s->vbe_index] = val;
-            }
-            break;
         case VBE_DISPI_INDEX_YRES:
-            if (val <= VBE_DISPI_MAX_YRES) {
-                s->vbe_regs[s->vbe_index] = val;
-            }
-            break;
         case VBE_DISPI_INDEX_BPP:
-            if (val == 0)
-                val = 8;
-            if (val == 4 || val == 8 || val == 15 ||
-                val == 16 || val == 24 || val == 32) {
-                s->vbe_regs[s->vbe_index] = val;
-            }
+        case VBE_DISPI_INDEX_VIRT_WIDTH:
+        case VBE_DISPI_INDEX_X_OFFSET:
+        case VBE_DISPI_INDEX_Y_OFFSET:
+            s->vbe_regs[s->vbe_index] = val;
+            vbe_fixup_regs(s);
             break;
         case VBE_DISPI_INDEX_BANK:
             if (s->vbe_regs[VBE_DISPI_INDEX_BPP] == 4) {
@@ -619,19 +697,12 @@ static void vbe_ioport_write_data(void *opaque, uint32_t addr, uint32_t val)
                 !(s->vbe_regs[VBE_DISPI_INDEX_ENABLE] & VBE_DISPI_ENABLED)) {
                 int h, shift_control;
                 
-                s->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] =
-                    s->vbe_regs[VBE_DISPI_INDEX_XRES];
-                s->vbe_regs[VBE_DISPI_INDEX_VIRT_HEIGHT] =
-                    s->vbe_regs[VBE_DISPI_INDEX_YRES];
+                s->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] = 0;
                 s->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] = 0;
                 s->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] = 0;
 
-                if (s->vbe_regs[VBE_DISPI_INDEX_BPP] == 4)
-                    s->vbe_line_offset = s->vbe_regs[VBE_DISPI_INDEX_XRES] >> 1;
-                else
-                    s->vbe_line_offset = s->vbe_regs[VBE_DISPI_INDEX_XRES] *
-                        ((s->vbe_regs[VBE_DISPI_INDEX_BPP] + 7) >> 3);
-                s->vbe_start_addr = 0;
+                s->vbe_regs[VBE_DISPI_INDEX_ENABLE] |= VBE_DISPI_ENABLED;
+                vbe_fixup_regs(s);
 
                 /* clear the screen (should be done in BIOS) */
                 if (!(val & VBE_DISPI_NOCLEARMEM)) {
@@ -672,40 +743,6 @@ static void vbe_ioport_write_data(void *opaque, uint32_t addr, uint32_t val)
             }
             s->dac_8bit = (val & VBE_DISPI_8BIT_DAC) > 0;
             s->vbe_regs[s->vbe_index] = val;
-            break;
-        case VBE_DISPI_INDEX_VIRT_WIDTH:
-            {
-                int w, h, line_offset;
-
-                if (val < s->vbe_regs[VBE_DISPI_INDEX_XRES])
-                    return;
-                w = val;
-                if (s->vbe_regs[VBE_DISPI_INDEX_BPP] == 4)
-                    line_offset = w >> 1;
-                else
-                    line_offset = w * ((s->vbe_regs[VBE_DISPI_INDEX_BPP] + 7) >> 3);
-                h = s->vram_size / line_offset;
-                /* XXX: support weird bochs semantics ? */
-                if (h < s->vbe_regs[VBE_DISPI_INDEX_YRES])
-                    return;
-                s->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] = w;
-                s->vbe_regs[VBE_DISPI_INDEX_VIRT_HEIGHT] = h;
-                s->vbe_line_offset = line_offset;
-            }
-            break;
-        case VBE_DISPI_INDEX_X_OFFSET:
-        case VBE_DISPI_INDEX_Y_OFFSET:
-            {
-                int x;
-                s->vbe_regs[s->vbe_index] = val;
-                s->vbe_start_addr = s->vbe_line_offset * s->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET];
-                x = s->vbe_regs[VBE_DISPI_INDEX_X_OFFSET];
-                if (s->vbe_regs[VBE_DISPI_INDEX_BPP] == 4)
-                    s->vbe_start_addr += x >> 1;
-                else
-                    s->vbe_start_addr += x * ((s->vbe_regs[VBE_DISPI_INDEX_BPP] + 7) >> 3);
-                s->vbe_start_addr >>= 2;
-            }
             break;
         default:
             break;
@@ -1273,6 +1310,7 @@ static void vga_draw_text(VGAState *s, int full_update)
     full_update |= update_basic_params(s);
 
     line_offset = s->line_offset;
+    /* start_addr * 4 is always smaller than vram_size */
     s1 = s->vram_ptr + (s->start_addr * 4);
 
     /* total width & height */
@@ -1300,7 +1338,15 @@ static void vga_draw_text(VGAState *s, int full_update)
     if (width != s->last_width || height != s->last_height ||
         cw != s->last_cw || cheight != s->last_ch || s->last_depth) {
         s->last_scr_width = width * cw;
+        if (s->last_scr_width > VGA_MAX_WIDTH) {
+            s->last_scr_width = VGA_MAX_WIDTH;
+            width = VGA_MAX_WIDTH / cw;
+        }
         s->last_scr_height = height * cheight;
+        if (s->last_scr_height > VGA_MAX_HEIGHT) {
+            s->last_scr_height = VGA_MAX_HEIGHT;
+            height = VGA_MAX_HEIGHT / cheight;
+        }
         qemu_console_resize(s->ds, s->last_scr_width, s->last_scr_height);
         s->last_depth = 0;
         s->last_width = width;
@@ -1338,6 +1384,25 @@ static void vga_draw_text(VGAState *s, int full_update)
     else
         vga_draw_glyph8 = vga_draw_glyph8_table[depth_index];
     vga_draw_glyph9 = vga_draw_glyph9_table[depth_index];
+
+    /*
+     * In theory, line_offset = width * 4, if line_offset is
+     * less than width * 4, then afterwards, memory operation
+     * on server surface might overflow
+     */
+    if (s->line_offset < 4 * width) {
+        s->line_offset = 4 * width;
+        line_offset = s->line_offset;
+    }
+
+    /*
+     * The above if statement might introduce overflow since it
+     * might increase s->line_offset
+     */
+    if (s->start_addr * 4 + line_offset * height >= \
+            s->vram_size) {
+        height = (s->vram_size - 1 - s->start_addr * 4) / line_offset;
+    }
 
     dest = ds_get_data(s->ds);
     linesize = ds_get_linesize(s->ds);
@@ -1556,6 +1621,7 @@ static void vga_draw_graphic(VGAState *s, int full_update)
     vga_draw_line_func *vga_draw_line;
     ram_addr_t page_min, page_max;
     unsigned long start, end;
+    int bpp, shift_count = 0;
 
     full_update |= update_basic_params(s);
 
@@ -1580,17 +1646,32 @@ static void vga_draw_graphic(VGAState *s, int full_update)
     }
     if (shift_control == 1 && (s->sr[0x01] & 8)) {
         disp_width <<= 1;
+        shift_count ++;
     }
 
     if (shift_control == 0) {
         if (s->sr[0x01] & 8) {
             disp_width <<= 1;
+            shift_count ++;
         }
     } else if (shift_control == 1) {
         if (s->sr[0x01] & 8) {
             disp_width <<= 1;
+            shift_count ++;
         }
     }
+
+    /*
+     * VGA surface data would be copied to vnc surface buffer,
+     * while vnc surface buffer size is restricted by the 2 macro
+     * constants. We should avoid buffer overflow.
+     */
+    if (disp_width > VGA_MAX_WIDTH) {
+        disp_width = VGA_MAX_WIDTH;
+        width = disp_width >> shift_count;
+    }
+    if (height > VGA_MAX_HEIGHT)
+        height = VGA_MAX_HEIGHT;
 
     depth = s->get_bpp(s);
     if (s->line_offset != s->last_line_offset || 
@@ -1603,6 +1684,15 @@ static void vga_draw_graphic(VGAState *s, int full_update)
         if (depth == 32) {
 #endif
             if (is_graphic_console()) {
+                bpp = depth / 8;
+                if (s->line_offset < disp_width * bpp)
+                    s->line_offset = disp_width * bpp;
+
+                if (s->start_addr * 4 + s->line_offset * height >= \
+                        s->vram_size) {
+                    height = (s->vram_size - 1 - s->start_addr * 4) / s->line_offset;
+                }
+
                 qemu_free_displaysurface(s->ds);
                 s->ds->surface = qemu_create_displaysurface_from(disp_width, height, depth,
                                                                s->line_offset,
@@ -1626,6 +1716,7 @@ static void vga_draw_graphic(VGAState *s, int full_update)
         full_update = 1;
     } else if (is_graphic_console() && is_buffer_shared(s->ds->surface) &&
                (full_update || s->ds->surface->data != s->vram_ptr + (s->start_addr * 4))) {
+        /* start_addr * 4 is always smaller than vram_size */
         s->ds->surface->data = s->vram_ptr + (s->start_addr * 4);
         dpy_setdata(s->ds);
     }
@@ -1702,6 +1793,9 @@ static void vga_draw_graphic(VGAState *s, int full_update)
             /* use page table dirty bit tracking for the LFB plus border */
             start = (s->start_addr * 4) & TARGET_PAGE_MASK;
             end = ((s->start_addr * 4 + height * line_offset) + TARGET_PAGE_SIZE - 1) & TARGET_PAGE_MASK;
+            /* start_addr * 4 is always smaller than vram_size */
+            /* end pointer might excceed vram_size */
+            if (end > s->vram_size) end = s->vram_size;
         }
 
         for (y = 0 ; y < start; y += TARGET_PAGE_SIZE)
@@ -1757,6 +1851,8 @@ static void vga_draw_graphic(VGAState *s, int full_update)
         if (!(s->cr[0x17] & 2)) {
             addr = (addr & ~0x8000) | ((y1 & 2) << 14);
         }
+        if (addr > s->vram_size || (addr + bwidth) > s->vram_size)
+            break; /* beyond vram memory page */
         page0 = s->vram_offset + (addr & TARGET_PAGE_MASK);
         page1 = s->vram_offset + ((addr + bwidth - 1) & TARGET_PAGE_MASK);
         update = full_update |
@@ -1818,7 +1914,7 @@ static void vga_draw_graphic(VGAState *s, int full_update)
 
 static void vga_draw_blank(VGAState *s, int full_update)
 {
-    int i, w, val;
+    int i, w, h, val;
     uint8_t *d;
 
     if (!full_update)
@@ -1836,14 +1932,21 @@ static void vga_draw_blank(VGAState *s, int full_update)
         val = s->rgb_to_pixel(0, 0, 0);
     else
         val = 0;
-    w = s->last_scr_width * ds_get_bytes_per_pixel(s->ds);
+    /*
+     * surface data might share the vram_ptr pointer or be allocted
+     * with a new memory block
+     */
     d = ds_get_data(s->ds);
-    for(i = 0; i < s->last_scr_height; i++) {
+    w = s->last_scr_width * ds_get_bytes_per_pixel(s->ds);
+    if (w > ds_get_linesize(s->ds))
+        w = ds_get_linesize(s->ds);
+    h = s->last_scr_height < ds_get_height(s->ds) ? \
+        s->last_scr_height : ds_get_height(s->ds);
+    for(i = 0; i < h; i++) {
         memset(d, val, w);
         d += ds_get_linesize(s->ds);
     }
-    dpy_update(s->ds, 0, 0,
-               s->last_scr_width, s->last_scr_height);
+    dpy_update(s->ds, 0, 0, w, h);
 }
 
 #define GMODE_TEXT     0

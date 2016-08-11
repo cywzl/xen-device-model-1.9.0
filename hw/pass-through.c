@@ -172,9 +172,6 @@ static int pt_word_reg_read(struct pt_dev *ptdev,
 static int pt_long_reg_read(struct pt_dev *ptdev,
     struct pt_reg_tbl *cfg_entry,
     uint32_t *value, uint32_t valid_mask);
-static int pt_cmd_reg_read(struct pt_dev *ptdev,
-    struct pt_reg_tbl *cfg_entry,
-    uint16_t *value, uint16_t valid_mask);
 static int pt_bar_reg_read(struct pt_dev *ptdev,
     struct pt_reg_tbl *cfg_entry,
     uint32_t *value, uint32_t valid_mask);
@@ -246,6 +243,12 @@ static int pt_intel_opregion_write(struct pt_dev *ptdev,
         uint32_t *value, uint32_t dev_value, uint32_t valid_mask);
 static uint8_t pt_reg_grp_header0_size_init(struct pt_dev *ptdev,
         struct pt_reg_grp_info_tbl *grp_reg, uint32_t base_offset);
+static int pt_vga_pci_subclass_read(struct pt_dev *ptdev,
+        struct pt_reg_tbl *cfg_entry,
+        uint16_t *value, uint16_t valid_mask);
+static int pt_vga_pci_subclass_write(struct pt_dev *ptdev,
+        struct pt_reg_tbl *cfg_entry,
+        uint16_t *value, uint16_t dev_value, uint16_t valid_mask);
 
 /* pt_reg_info_tbl declaration
  * - only for emulated register (either a part or whole bit).
@@ -286,9 +289,9 @@ static struct pt_reg_info_tbl pt_emu_reg_header0_tbl[] = {
         .size       = 2,
         .init_val   = 0x0000,
         .ro_mask    = 0xF880,
-        .emu_mask   = 0x0740,
+        .emu_mask   = 0x0743,
         .init       = pt_common_reg_init,
-        .u.w.read   = pt_cmd_reg_read,
+        .u.w.read   = pt_word_reg_read,
         .u.w.write  = pt_cmd_reg_write,
         .u.w.restore  = pt_cmd_reg_restore,
     },
@@ -461,6 +464,18 @@ static struct pt_reg_info_tbl pt_emu_reg_header0_tbl[] = {
         .u.dw.read   = pt_intel_opregion_read,
         .u.dw.write  = pt_intel_opregion_write,
         .u.dw.restore  = NULL,
+    },
+    /* VGA PCI SubClass*/
+    {
+        .offset     = PCI_CLASS_DEVICE,
+        .size       = 2,
+        .init_val   = 0,
+        .ro_mask    = 0xFFFF,
+        .emu_mask   = 0xFFFF,
+        .no_wb      = 1,
+        .u.w.read   = pt_vga_pci_subclass_read,
+        .u.w.write  = pt_vga_pci_subclass_write,
+        .u.w.restore  = NULL,
     },
     {
         .size = 0,
@@ -1905,7 +1920,7 @@ static int pt_dev_is_virtfn(struct pci_dev *dev)
     return rc;
 }
 
-static int pt_register_regions(struct pt_dev *assigned_device)
+static int pt_register_regions(struct pt_dev *assigned_device, uint16_t *cmd)
 {
     int i = 0;
     uint32_t bar_data = 0;
@@ -1925,17 +1940,26 @@ static int pt_register_regions(struct pt_dev *assigned_device)
 
             /* Register current region */
             if ( pci_dev->base_addr[i] & PCI_ADDRESS_SPACE_IO )
+            {
                 pci_register_io_region((PCIDevice *)assigned_device, i,
                     (uint32_t)pci_dev->size[i], PCI_ADDRESS_SPACE_IO,
                     pt_ioport_map);
+                *cmd |= PCI_COMMAND_IO;
+            }
             else if ( pci_dev->base_addr[i] & PCI_ADDRESS_SPACE_MEM_PREFETCH )
+            {
                 pci_register_io_region((PCIDevice *)assigned_device, i,
                     (uint32_t)pci_dev->size[i], PCI_ADDRESS_SPACE_MEM_PREFETCH,
                     pt_iomem_map);
+                *cmd |= PCI_COMMAND_MEMORY;
+            }
             else
+            {
                 pci_register_io_region((PCIDevice *)assigned_device, i,
                     (uint32_t)pci_dev->size[i], PCI_ADDRESS_SPACE_MEM,
                     pt_iomem_map);
+                *cmd |= PCI_COMMAND_MEMORY;
+            }
 
             PT_LOG("IO region registered (size=0x%08x base_addr=0x%08x)\n",
                 (uint32_t)(pci_dev->size[i]),
@@ -3263,27 +3287,6 @@ static int pt_long_reg_read(struct pt_dev *ptdev,
    return 0;
 }
 
-/* read Command register */
-static int pt_cmd_reg_read(struct pt_dev *ptdev,
-        struct pt_reg_tbl *cfg_entry,
-        uint16_t *value, uint16_t valid_mask)
-{
-    struct pt_reg_info_tbl *reg = cfg_entry->reg;
-    uint16_t valid_emu_mask = 0;
-    uint16_t emu_mask = reg->emu_mask;
-
-    if ( ptdev->is_virtfn )
-        emu_mask |= PCI_COMMAND_MEMORY;
-    if ( pt_is_iomul(ptdev) )
-        emu_mask |= PCI_COMMAND_IO;
-
-    /* emulate word register */
-    valid_emu_mask = emu_mask & valid_mask;
-    *value = PT_MERGE_VALUE(*value, cfg_entry->data, ~valid_emu_mask);
-
-    return 0;
-}
-
 /* read BAR */
 static int pt_bar_reg_read(struct pt_dev *ptdev,
         struct pt_reg_tbl *cfg_entry,
@@ -3418,19 +3421,13 @@ static int pt_cmd_reg_write(struct pt_dev *ptdev,
     uint16_t writable_mask = 0;
     uint16_t throughable_mask = 0;
     uint16_t wr_value = *value;
-    uint16_t emu_mask = reg->emu_mask;
-
-    if ( ptdev->is_virtfn )
-        emu_mask |= PCI_COMMAND_MEMORY;
-    if ( pt_is_iomul(ptdev) )
-        emu_mask |= PCI_COMMAND_IO;
 
     /* modify emulate register */
     writable_mask = ~reg->ro_mask & valid_mask;
     cfg_entry->data = PT_MERGE_VALUE(*value, cfg_entry->data, writable_mask);
 
     /* create value for writing to I/O device register */
-    throughable_mask = ~emu_mask & valid_mask;
+    throughable_mask = ~reg->emu_mask & valid_mask;
 
     if (*value & PCI_COMMAND_DISABLE_INTx)
     {
@@ -4202,6 +4199,31 @@ static int pt_intel_opregion_write(struct pt_dev *ptdev,
     return 0;
 }
 
+static int pt_vga_pci_subclass_read(struct pt_dev *ptdev,
+        struct pt_reg_tbl *cfg_entry,
+        uint16_t *value, uint16_t valid_mask)
+{
+    PCIDevice *dev = (PCIDevice *)&ptdev->dev;
+
+    if (*value == 0x300 || *value == 0x380)
+    {
+      /* Force IGD passthru device (00:02.0) to be primary VGA */
+      if (igd_passthru &&
+	  ((pci_bus_num(dev->bus) == 0) &&
+	   PCI_SLOT(dev->devfn) == 2 &&
+	   PCI_FUNC(dev->devfn) == 0))
+	  *value = 0x300;
+    }
+    return 0;
+}
+
+static int pt_vga_pci_subclass_write(struct pt_dev *ptdev,
+        struct pt_reg_tbl *cfg_entry,
+        uint16_t *value, uint16_t dev_value, uint16_t valid_mask)
+{
+    return 0;
+}
+
 static struct pt_dev * register_real_device(PCIBus *e_bus,
         const char *e_dev_name, int e_devfn, uint8_t r_bus, uint8_t r_dev,
         uint8_t r_func, uint32_t machine_irq, struct pci_access *pci_access,
@@ -4211,6 +4233,7 @@ static struct pt_dev * register_real_device(PCIBus *e_bus,
     struct pt_dev *assigned_device = NULL;
     struct pci_dev *pci_dev;
     uint8_t e_device, e_intx;
+    uint16_t cmd = 0;
     char *key, *val;
     int msi_translate, power_mgmt;
 
@@ -4300,7 +4323,7 @@ static struct pt_dev * register_real_device(PCIBus *e_bus,
         assigned_device->dev.config[i] = pci_read_byte(pci_dev, i);
 
     /* Handle real device's MMIO/PIO BARs */
-    pt_register_regions(assigned_device);
+    pt_register_regions(assigned_device, &cmd);
 
     /* Setup VGA bios for passthroughed gfx */
     if ( setup_vga_pt(assigned_device) < 0 )
@@ -4378,6 +4401,10 @@ static struct pt_dev * register_real_device(PCIBus *e_bus,
     }
 
 out:
+    if (cmd)
+        pci_write_word(pci_dev, PCI_COMMAND,
+            *(uint16_t *)(&assigned_device->dev.config[PCI_COMMAND]) | cmd);
+
     PT_LOG("Real physical device %02x:%02x.%x registered successfuly!\n"
            "IRQ type = %s\n", r_bus, r_dev, r_func,
            assigned_device->msi_trans_en? "MSI-INTx":"INTx");

@@ -34,7 +34,7 @@ int add_init_drive(const char *opts)
     int ret = -1;
 
     drive_opt_idx = drive_add(NULL, "%s", opts);
-    if (!drive_opt_idx)
+    if (drive_opt_idx < 0)
         return ret;
 
     drive_idx = drive_init(&drives_opt[drive_opt_idx], 0, current_machine);

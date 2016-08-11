@@ -80,7 +80,8 @@
 #endif /* !CONFIG_BOCHS_VBE */
 
 #define CH_ATTR_SIZE (160 * 100)
-#define VGA_MAX_HEIGHT 2048
+#define VGA_MAX_HEIGHT 2048 /* must be equal to VNC_MAX_HEIGHT, see 'vnc.c' */
+#define VGA_MAX_WIDTH 2560  /* must be equal to VNC_MAX_WIDTH, see 'vnc.c' */
 
 struct vga_precise_retrace {
     int64_t ticks_per_char;
