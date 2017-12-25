@@ -932,8 +932,6 @@ static CharDriverState *qemu_chr_open_pty(void)
     s = qemu_mallocz(sizeof(PtyCharDriver));
 
     if (openpty(&s->fd, &slave_fd, pty_name, NULL, NULL) < 0) {
-        qemu_free(s);
-        qemu_free(chr);
         return NULL;
     }
 
@@ -2236,6 +2234,30 @@ void qemu_chr_info(void)
     CharDriverState *chr;
 
     TAILQ_FOREACH(chr, &chardevs, next) {
-        term_printf("%s: filename=%s\n", chr->label, chr->filename);
+        //skylark remove
+        //term_printf("%s: filename=%s\n", chr->label, chr->filename);
     }
 }
+
+//skylark
+static void qemu_chr_generic_open_bh(void *opaque)
+{
+    CharDriverState *s = opaque;
+    
+    //skylark
+    //qemu_chr_event(s, CHR_EVENT_OPENED);
+    qemu_chr_event(s, CHR_EVENT_RESET);
+    
+    qemu_bh_delete(s->bh);
+    s->bh = NULL;
+}
+
+void qemu_chr_generic_open(CharDriverState *s)
+{
+    if (s->bh == NULL) {
+	s->bh = qemu_bh_new(qemu_chr_generic_open_bh, s);
+	qemu_bh_schedule(s->bh);
+    }
+}
+//////////////////////////////////////////////
+

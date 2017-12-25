@@ -241,6 +241,12 @@ static int rtc_date_offset = -1; /* -1 means no change */
 int cirrus_vga_enabled = 1;
 int std_vga_enabled = 0;
 int vmsvga_enabled = 0;
+
+#ifdef CONFIG_SPICE
+int qxl_enabled = 0; // qxl option set?
+#endif
+
+
 int vgpu_enabled = 0;
 int gfx_passthru = 0;
 #ifdef TARGET_SPARC
@@ -305,6 +311,38 @@ static QEMUTimer *icount_vm_timer;
 static QEMUTimer *nographic_timer;
 
 uint8_t qemu_uuid[16];
+
+#ifdef CONFIG_SPICE
+bool spice_used = false; // spice option is set in xm conf file.
+char spice_opt[128];
+int spice_port = 0;
+int spice_tls_port = 0;
+char spice_host[40];
+char *psh = NULL;
+
+char spice_password[64];
+int spice_disable_ticketing = 0;
+char *pspwd = NULL;
+
+char spiceic[25];
+char *psic = NULL;
+char spicesv[25];
+char *pssv = NULL;
+char spicejpeg_wan_compression[25];
+char *psjwc = NULL;
+char spicezlib_glz_wan_compression[25];
+char *pszgwc = NULL;
+int spiceplayback = 1;
+
+int spiceagent_mouse = 1;
+
+char qxl_opt[64];
+int qxl_num = 0;
+int qxl_ram = 0;
+
+extern int using_spice; // spice_server_init
+extern void *opaque_qxl;
+#endif
 
 #include "xen-vl-extra.c"
 
@@ -3809,6 +3847,9 @@ enum {
     QEMU_OPTION_g,
     QEMU_OPTION_vnc,
 
+    QEMU_OPTION_spice,
+    QEMU_OPTION_qxl,
+
     /* Network options: */
     QEMU_OPTION_net,
     QEMU_OPTION_tftp,
@@ -3951,6 +3992,12 @@ static const QEMUOption qemu_options[] = {
     { "g", 1, QEMU_OPTION_g },
 #endif
     { "vnc", HAS_ARG, QEMU_OPTION_vnc },
+    
+#ifdef CONFIG_SPICE
+    { "spice", HAS_ARG, QEMU_OPTION_spice },
+    { "qxl", HAS_ARG, QEMU_OPTION_qxl },
+#endif
+
 
     /* Network options: */
     { "net", HAS_ARG, QEMU_OPTION_net},
@@ -4203,31 +4250,45 @@ static void select_vgahw (const char *p)
         std_vga_enabled = 1;
         cirrus_vga_enabled = 0;
         vmsvga_enabled = 0;
+        qxl_enabled = 0;
         vgpu_enabled = 0;
     } else if (strstart(p, "cirrus", &opts)) {
         cirrus_vga_enabled = 1;
         std_vga_enabled = 0;
         vmsvga_enabled = 0;
+        qxl_enabled = 0;
         vgpu_enabled = 0;
     } else if (strstart(p, "vmware", &opts)) {
         cirrus_vga_enabled = 0;
         std_vga_enabled = 0;
         vmsvga_enabled = 1;
+        qxl_enabled = 0;
         vgpu_enabled = 0;
-    } else if (strstart(p, "passthrough", &opts)) {
+    } else if (strstart(p, "qxl", &opts)) {
+        cirrus_vga_enabled = 0;
+        std_vga_enabled = 0;
+        vmsvga_enabled = 0;
+        qxl_enabled = 1;
+         vgpu_enabled = 0;
+    }  else if (strstart(p, "passthrough", &opts)) {
+        cirrus_vga_enabled = 0;
+        std_vga_enabled = 0;
         vmsvga_enabled = 0;
         gfx_passthru = 1;
+        qxl_enabled = 0;
         vgpu_enabled = 0;
     } else if (strstart(p, "vgpu", &opts)) {
         cirrus_vga_enabled = 0;
         std_vga_enabled = 0;
         vmsvga_enabled = 0;
+        qxl_enabled = 0;
         vgpu_enabled = 1;
     } else if (strstart(p, "none", &opts)) {
         cirrus_vga_enabled = 0;
         std_vga_enabled = 0;
         vmsvga_enabled = 0;
         vgpu_enabled = 0;
+        qxl_enabled = 0;
     } else {
     invalid_vga:
         fprintf(stderr, "Unknown vga type: %s\n", p);
@@ -4526,7 +4587,7 @@ int main(int argc, char **argv, char **envp)
     kernel_cmdline = "";
     cyls = heads = secs = 0;
     translation = BIOS_ATA_TRANSLATION_AUTO;
-    monitor_device = "null";
+    monitor_device = "vc:80Cx24C";
 
     serial_devices[0] = "vc:80Cx24C";
     for(i = 1; i < MAX_SERIAL_PORTS; i++)
@@ -5106,6 +5167,119 @@ geometry_error:
 	    case QEMU_OPTION_vnc:
 		vnc_display = optarg;
 		break;
+		
+#ifdef CONFIG_SPICE
+	case QEMU_OPTION_spice:
+		{
+		    const char *sopt = spice_opt;
+		    char buf[40];
+		    int port = 0;
+		    char *host = NULL;
+
+		    memset(spice_opt, '\0', sizeof(spice_opt));
+		    strcpy(sopt, optarg);
+		    if (get_param_value(buf, sizeof(buf), "port", spice_opt)) {
+		       port = strtol(buf, NULL, 0); 
+		    }
+		    else {
+                       fprintf(stderr, "Port arg is needed for -spice opt\n");
+                       exit(1);
+		    }
+		    spice_port = port;
+		    if (get_param_value(buf, sizeof(buf), "disable_ticketing", spice_opt)) {
+		       spice_disable_ticketing = strtol(buf, NULL, 0); 
+		    }
+		    if (get_param_value(buf, sizeof(buf), "passwd", spice_opt)) {
+		       strcpy(spice_password, buf);
+		       pspwd = spice_password;
+		    }
+		    else {
+		       memset(spice_password, '\0', sizeof(spice_password));
+		       pspwd = NULL;
+		       if (!spice_disable_ticketing) {
+		          fprintf(stderr, "Ticketing is enabled, pls set passwd.\n");
+		          exit(1);
+		       }
+		    }
+		    if (get_param_value(buf, sizeof(buf), "host", spice_opt)) {
+		       host = buf;
+		    }
+		    if (host) {
+		       strcpy(spice_host, host);
+		       psh = spice_host;
+		    }
+		    else {
+		       memset(spice_host, '\0', sizeof(spice_host));
+		       psh = NULL;
+		    }
+		    if (get_param_value(buf, sizeof(buf), "ic", spice_opt)) {
+		       strcpy(spiceic, buf);
+		       psic = spiceic;
+		    }
+		    else {
+		       psh = NULL;
+		    }
+		    if (get_param_value(buf, sizeof(buf), "sv", spice_opt)) {
+		       strcpy(spicesv, buf);
+		       pssv = spicesv;
+		    }
+		    else {
+		       pssv = NULL;
+		    }
+		    if (get_param_value(buf, sizeof(buf), "jpeg_wan_compression", spice_opt)) {
+		       strcpy(spicejpeg_wan_compression, buf);
+		       psjwc = spicejpeg_wan_compression;
+		    }
+		    else {
+		       psjwc = NULL;
+		    }
+		    if (get_param_value(buf, sizeof(buf), "zlib_glz_wan_compression", spice_opt)) {
+		       strcpy(spicezlib_glz_wan_compression, buf);
+		       pszgwc = spicezlib_glz_wan_compression;
+		    }
+		    else {
+		       pszgwc = NULL;
+		    }
+		    if (get_param_value(buf, sizeof(buf), "playback", spice_opt)) {
+		       spiceplayback = strtol(buf, NULL, 0); 
+		    }
+		    else {
+		       spiceplayback = 1;
+		    }
+		    if (get_param_value(buf, sizeof(buf), "agent_mouse", spice_opt)) {
+		       spiceagent_mouse = strtol(buf, NULL, 0); 
+		    }
+		    else {
+		       spiceagent_mouse = 1;
+		    }
+
+		    spice_used = true;
+		    // fprintf(stderr, "spice_port=%d, spice_host=%s\n", spice_port, spice_host);
+		}
+		break;
+	    case QEMU_OPTION_qxl:
+		{
+		    const char *qopt = qxl_opt;
+		    char buf[40];
+		    int num = 0;
+		    int ram = 0;
+
+		    strcpy(qopt, optarg);
+		    if (get_param_value(buf, sizeof(buf), "num", qxl_opt)) {
+		       num = strtol(buf, NULL, 0); 
+		    }
+		    if (get_param_value(buf, sizeof(buf), "ram", qxl_opt)) {
+		       ram = strtol(buf, NULL, 0); 
+		    }
+		    qxl_num = num;
+		    qxl_ram = ram;
+		    select_vgahw("qxl");
+		    // fprintf(stderr, "qxl_num=%d, qxl_ram=%d\n", qxl_num, qxl_ram);
+		}
+		break;
+#endif
+
+		
             case QEMU_OPTION_no_acpi:
                 acpi_enabled = 0;
                 break;
@@ -5641,6 +5815,10 @@ geometry_error:
             }
         }
     }
+#ifdef CONFIG_SPICE
+    if (spice_used)
+        qemu_spice_init();
+#endif
 
     if (!display_state)
         dumb_display_init();
@@ -5688,6 +5866,17 @@ geometry_error:
                 if (sdl || !vnc_display)
                     cocoa_display_init(ds, full_screen);
 #endif
+
+#ifdef CONFIG_SPICE
+                if (using_spice && !qxl_enabled) 
+                    qemu_spice_display_init(ds);
+#endif
+
+#ifdef CONFIG_SPICE
+                if (using_spice && qxl_enabled && opaque_qxl) 
+                    qxl_add_interface(opaque_qxl);
+#endif
+
             }
     }
     dpy_resize(ds);

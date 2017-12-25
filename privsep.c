@@ -537,9 +537,7 @@ typedef struct {
 static inline void
 send_bool_errno(int fd, bool b, int error)
 {
-    bool_errno_t data = { 0 };
-    data.b = b;
-    data.error = error;
+    bool_errno_t data = { b, error };
     send_raw(fd, data);
 }
 
@@ -677,7 +675,7 @@ privsep_unlock_cd(int id)
     }
 }
 
-static int
+static int 
 xenstore_vm_write(int domid, const char *key, const char *value)
 {
     char *buf, *path;
@@ -922,7 +920,7 @@ do_record_dm(const char *subpath, const char *state)
 {
     char *path = NULL;
 
-    if (asprintf(&path,
+    if (asprintf(&path, 
                 "/local/domain/0/device-model/%u/%s", domid, subpath) < 0) {
         return;
     }
@@ -951,7 +949,7 @@ do_read_dm(const char *subpath)
     char *path = NULL, *res;
     int e;
 
-    if (asprintf(&path,
+    if (asprintf(&path, 
                 "/local/domain/0/device-model/%u/%s", domid, subpath) < 0) {
         return NULL;
     }

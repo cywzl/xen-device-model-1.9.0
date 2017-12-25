@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -e 
 
 # git-clean -x -d && ./xen-setup && make prefix=/usr CMDLINE_CFLAGS='-O0 -g' -j4 && make install DESTDIR=`pwd`/dist/ prefix=/usr && rsync -a --stats --delete . thule:shadow/qemu-iwj.git/ && rsync -a --stats dist/. root@thule:/
 

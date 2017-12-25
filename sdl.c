@@ -71,6 +71,10 @@ static GLuint texture_ref = 0;
 static GLint gl_format;
 static uint8_t bgr;
 
+//skylark
+//extern char domain_name[64];
+
+
 static void opengl_setdata(DisplayState *ds)
 {
     glEnable(GL_TEXTURE_RECTANGLE_ARB);

@@ -74,6 +74,8 @@ ram_addr_t phys_ram_size;
 int phys_ram_fd;
 uint8_t *phys_ram_base;
 uint8_t *phys_ram_dirty;
+//skylark
+static ram_addr_t phys_ram_alloc_offset = 0;
 
 CPUState *first_cpu;
 /* current CPU in the current thread. It is only valid inside
@@ -731,6 +733,26 @@ void cpu_physical_memory_write_rom(target_phys_addr_t addr,
 void qemu_register_coalesced_mmio(target_phys_addr_t addr, ram_addr_t size) { }
 void qemu_unregister_coalesced_mmio(target_phys_addr_t addr, ram_addr_t size) { }
 
+// skylark
+/* XXX: better than nothing */
+ram_addr_t qemu_ram_alloc(ram_addr_t size)
+{
+    ram_addr_t addr;
+    if ((phys_ram_alloc_offset + size) > phys_ram_size) {
+        fprintf(stderr, "Not enough memory (requested_size = %" PRIu64 ", max memory = %" PRIu64 ")\n",
+                (uint64_t)size, (uint64_t)phys_ram_size);
+        abort();
+    }
+    addr = phys_ram_alloc_offset;
+    phys_ram_alloc_offset = TARGET_PAGE_ALIGN(phys_ram_alloc_offset + size);
+    return addr;
+}
+// skylark
+void qemu_ram_free(ram_addr_t addr)
+{
+}
+
+
 /* stub out various functions for Xen DM */
 void dump_exec_info(FILE *f,
                     int (*cpu_fprintf)(FILE *f, const char *fmt, ...)) {
@@ -830,4 +852,32 @@ void cpu_physical_memory_unmap(void *buffer, target_phys_addr_t len,
 {
     qemu_invalidate_entry(buffer);
     cpu_notify_map_clients();
+}
+/* Return a host pointer to ram allocated with qemu_ram_alloc.
+ *    With the exception of the softmmu code in this file, this should
+ *       only be used for local memory (e.g. video ram) that the device owns,
+ *          and knows it isn't going to access beyond the end of the block.
+ *
+ *             It should not be used for general purpose DMA.
+ *                Use cpu_physical_memory_map/cpu_physical_memory_rw instead.
+ *                 */
+void *qemu_get_ram_ptr(ram_addr_t addr)
+{
+    /*
+    RAMBlock *block;
+
+    QLIST_FOREACH(block, &ram_list.blocks, next) {
+        if (addr - block->offset < block->length) {
+            QLIST_REMOVE(block, next);
+            QLIST_INSERT_HEAD(&ram_list.blocks, block, next);
+            return block->host + (addr - block->offset);
+        }
+    }
+    
+    fprintf(stderr, "Bad ram offset %" PRIx64 "\n", (uint64_t)addr);
+    abort();
+
+    return NULL;
+    */
+    return phys_ram_base + addr;
 }

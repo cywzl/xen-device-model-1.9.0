@@ -2,24 +2,26 @@
 #ifndef QEMU_COMMON_H
 #define QEMU_COMMON_H
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define WINVER 0x0501  /* needed for ipv6 bits */
-#include <windows.h>
-#define NO_UNIX_SOCKETS 1
-#endif
+#include "config-host.h"
 
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
+#ifdef CONFIG_GCC_ATTRIBUTE_WARN_UNUSED_RESULT
+#define QEMU_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
+#else
+#define QEMU_WARN_UNUSED_RESULT
+#endif
 
-/* Hack around the mess dyngen-exec.h causes: We need QEMU_NORETURN in files that
-   cannot include the following headers without conflicts. This condition has
-   to be removed once dyngen is gone. */
-#ifndef __DYNGEN_EXEC_H__
+#define QEMU_BUILD_BUG_ON(x) typedef char __build_bug_on__##__LINE__[(x)?-1:1];
+
+//spice.v21///////////////////////////////////////////
+typedef struct DeviceState DeviceState;
+//////////////////////////////////////////////////////
 
 /* we put basic includes here to avoid repeating them in device drivers */
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <string.h>
 #include <strings.h>
 #include <inttypes.h>
@@ -30,7 +32,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include "config-host.h"
+#include <assert.h>
 
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0
@@ -38,28 +40,58 @@
 #ifndef O_BINARY
 #define O_BINARY 0
 #endif
-
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
 #ifndef ENOMEDIUM
 #define ENOMEDIUM ENODEV
 #endif
+#if !defined(ENOTSUP)
+#define ENOTSUP 4096
+#endif
 
+//skylark//////////////////////////////////////////////
 #ifndef HAVE_IOVEC
 #define HAVE_IOVEC
 struct iovec {
     void *iov_base;
     size_t iov_len;
 };
+///////////////////////////////////////////////////////
+/*
+ * Use the same value as Linux for now.
+ */
+#define IOV_MAX		1024
 #else
 #include <sys/uio.h>
 #endif
 
+#if defined __GNUC__
+#if (__GNUC__ < 4) || \
+     defined(__GNUC_MINOR__) && (__GNUC__ == 4) && (__GNUC_MINOR__ < 4)
+   /* gcc versions before 4.4.x don't support gnu_printf, so use printf. */
+#define GCC_ATTR __attribute__((__unused__, format(printf, 1, 2)))
+#define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
+#else
+   /* Use gnu_printf when supported (qemu uses standard format strings). */
+#define GCC_ATTR __attribute__((__unused__, format(gnu_printf, 1, 2)))
+#define GCC_FMT_ATTR(n, m) __attribute__((format(gnu_printf, n, m)))
+#endif
+#else
+#define GCC_ATTR /**/
+#define GCC_FMT_ATTR(n, m)
+#endif
+
+typedef int (*fprintf_function)(FILE *f, const char *fmt, ...)
+    GCC_FMT_ATTR(2, 3);
+
+
+
 #ifdef _WIN32
 #define fsync _commit
 #define lseek _lseeki64
-#define ENOTSUP 4096
 extern int qemu_ftruncate64(int, int64_t);
 #define ftruncate qemu_ftruncate64
-
 
 static inline char *realpath(const char *path, char *resolved_path)
 {
@@ -87,9 +119,12 @@ static inline char *realpath(const char *path, char *resolved_path)
 #endif /* !defined(NEED_CPU_H) */
 
 /* bottom halves */
+typedef void QEMUBHFunc(void *opaque);
 typedef struct QEMUBH QEMUBH;
 
-typedef void QEMUBHFunc(void *opaque);
+void async_context_push(void);
+void async_context_pop(void);
+int get_async_context_id(void);
 
 QEMUBH *qemu_bh_new(QEMUBHFunc *cb, void *opaque);
 void qemu_bh_schedule(QEMUBH *bh);
@@ -103,8 +138,10 @@ void qemu_bh_schedule_idle(QEMUBH *bh);
 void qemu_bh_cancel(QEMUBH *bh);
 void qemu_bh_delete(QEMUBH *bh);
 int qemu_bh_poll(void);
-
 uint64_t muldiv64(uint64_t a, uint32_t b, uint32_t c);
+
+//spice.v21
+//void qemu_bh_update_timeout(int *timeout);
 
 void qemu_get_timedate(struct tm *tm, int offset);
 int qemu_timedate_diff(struct tm *tm);
@@ -114,8 +151,17 @@ void pstrcpy(char *buf, size_t buf_size, const char *str);
 char *pstrcat(char *buf, size_t buf_size, const char *s);
 int strstart(const char *str, const char *val, const char **ptr);
 int stristart(const char *str, const char *val, const char **ptr);
+int qemu_strnlen(const char *s, int max_len);
 time_t mktimegm(struct tm *tm);
 int qemu_fls(int i);
+int qemu_fdatasync(int fd);
+
+//spice.v21
+//int fcntl_setfl(int fd, int flag);
+
+/* path.c */
+void init_paths(const char *prefix);
+const char *path(const char *pathname);
 
 #define qemu_isalnum(c)		isalnum((unsigned char)(c))
 #define qemu_isalpha(c)		isalpha((unsigned char)(c))
@@ -133,6 +179,12 @@ int qemu_fls(int i);
 #define qemu_isascii(c)		isascii((unsigned char)(c))
 #define qemu_toascii(c)		toascii((unsigned char)(c))
 
+#ifdef _WIN32
+/* ffs() in oslib-win32.c for WIN32, strings.h for the rest of the world */
+int ffs(int i);
+#endif
+
+void *qemu_oom_check(void *ptr);
 void *qemu_malloc(size_t size);
 void *qemu_realloc(void *ptr, size_t size);
 void *qemu_mallocz(size_t size);
@@ -142,14 +194,32 @@ char *qemu_strndup(const char *str, size_t size);
 
 void *get_mmap_addr(unsigned long size);
 
+//skylark//////////////////////////////////////////////
+//void qemu_mutex_lock_iothread(void);
+//void qemu_mutex_unlock_iothread(void);
+static inline void qemu_mutex_lock_iothread(void) {}
+static inline void qemu_mutex_unlock_iothread(void) {}
+///////////////////////////////////////////////////////
+
+int qemu_open(const char *name, int flags, ...);
+ssize_t qemu_write_full(int fd, const void *buf, size_t count)
+    QEMU_WARN_UNUSED_RESULT;
+void qemu_set_cloexec(int fd);
+
+#ifndef _WIN32
+int qemu_eventfd(int pipefd[2]);
+int qemu_pipe(int pipefd[2]);
+#endif
 
 /* Error handling.  */
-
 void QEMU_NORETURN hw_error(const char *fmt, ...)
     __attribute__ ((__format__ (__printf__, 1, 2)));
+//spice.v21
+//void QEMU_NORETURN hw_error(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
 
 /* IO callbacks.  */
 typedef void IOReadHandler(void *opaque, const uint8_t *buf, int size);
+typedef int IOCanReadHandler(void *opaque);
 typedef int IOCanRWHandler(void *opaque);
 typedef void IOHandler(void *opaque);
 
@@ -166,6 +236,11 @@ typedef struct NICInfo NICInfo;
 typedef struct HCIInfo HCIInfo;
 typedef struct AudioState AudioState;
 typedef struct BlockDriverState BlockDriverState;
+
+//skylark//////////////////////////////////////////////
+//typedef struct DriveInfo DriveInfo;
+///////////////////////////////////////////////////////
+
 typedef struct DisplayState DisplayState;
 typedef struct DisplayChangeListener DisplayChangeListener;
 typedef struct DisplaySurface DisplaySurface;
@@ -174,17 +249,49 @@ typedef struct PixelFormat PixelFormat;
 typedef struct TextConsole TextConsole;
 typedef TextConsole QEMUConsole;
 typedef struct CharDriverState CharDriverState;
+typedef struct MACAddr MACAddr;
 typedef struct VLANState VLANState;
 typedef struct QEMUFile QEMUFile;
+//skylark//////////////////////////////////////////////
+//typedef struct VLANClientState VLANClientState;
+///////////////////////////////////////////////////////
 typedef struct i2c_bus i2c_bus;
 typedef struct i2c_slave i2c_slave;
 typedef struct SMBusDevice SMBusDevice;
 typedef struct QEMUTimer QEMUTimer;
+
+//spice.v21//////////////////////////////////////////////
+//typedef struct PCIHostState PCIHostState;
+typedef struct PCIExpressHost PCIExpressHost;
+///////////////////////////////////////////////////////
+
 typedef struct PCIBus PCIBus;
 typedef struct PCIDevice PCIDevice;
 typedef struct SerialState SerialState;
 typedef struct IRQState *qemu_irq;
 struct pcmcia_card_s;
+
+//spice.v21//////////////////////////////////////////////
+typedef struct PCMCIACardState PCMCIACardState;
+typedef struct MouseTransformInfo MouseTransformInfo;
+typedef struct uWireSlave uWireSlave;
+typedef struct I2SCodec I2SCodec;
+typedef struct SSIBus SSIBus;
+typedef struct EventNotifier EventNotifier;
+//typedef struct VirtIODevice VirtIODevice;
+///////////////////////////////////////////////////////
+
+typedef uint64_t pcibus_t;
+//skylark//////////////////////////////////////////////
+/*
+typedef enum {
+    IF_NONE,
+    IF_IDE, IF_SCSI, IF_FLOPPY, IF_PFLASH, IF_MTD, IF_SD, IF_VIRTIO, IF_XEN,
+    IF_COUNT
+} BlockInterfaceType;
+*/
+//void cpu_exec_init_all(unsigned long tb_size);
+///////////////////////////////////////////////////////
 
 /* CPU save/load.  */
 void cpu_save(QEMUFile *f, void *opaque);
@@ -192,6 +299,27 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id);
 
 /* Force QEMU to stop what it's doing and service IO */
 void qemu_service_io(void);
+
+/* Force QEMU to process pending events */
+void qemu_notify_event(void);
+
+/* Unblock cpu */
+void qemu_cpu_kick(void *env);
+int qemu_cpu_self(void *env);
+
+/* work queue */
+struct qemu_work_item {
+    struct qemu_work_item *next;
+    void (*func)(void *data);
+    void *data;
+    int done;
+};
+
+#ifdef CONFIG_USER_ONLY
+#define qemu_init_vcpu(env) do { } while (0)
+#else
+void qemu_init_vcpu(void *env);
+#endif
 
 typedef struct QEMUIOVector {
     struct iovec *iov;
@@ -201,18 +329,57 @@ typedef struct QEMUIOVector {
 } QEMUIOVector;
 
 void qemu_iovec_init(QEMUIOVector *qiov, int alloc_hint);
+
+//spice.v21////////////////////////////////////////////
+void qemu_iovec_init_external(QEMUIOVector *qiov, struct iovec *iov, int niov);
+///////////////////////////////////////////////////////
+
 void qemu_iovec_add(QEMUIOVector *qiov, void *base, size_t len);
+
+//spice.v21////////////////////////////////////////////
+void qemu_iovec_copy(QEMUIOVector *dst, QEMUIOVector *src, uint64_t skip,
+    size_t size);
+void qemu_iovec_concat(QEMUIOVector *dst, QEMUIOVector *src, size_t size);
+///////////////////////////////////////////////////////
+
 void qemu_iovec_destroy(QEMUIOVector *qiov);
 void qemu_iovec_reset(QEMUIOVector *qiov);
 void qemu_iovec_to_buffer(QEMUIOVector *qiov, void *buf);
 void qemu_iovec_from_buffer(QEMUIOVector *qiov, const void *buf, size_t count);
 
-#endif /* dyngen-exec.h hack */
+//spice.v21////////////////////////////////////////////
+void qemu_iovec_memset(QEMUIOVector *qiov, int c, size_t count);
 
+struct Monitor;
+typedef struct Monitor Monitor;
+
+/* compute with 96 bit intermediate result: (a*b)/c */
 /*
- * Redirect calls to output to internal functions to be able
- * to redirect output to syslog directly
- */
+static inline uint64_t muldiv64(uint64_t a, uint32_t b, uint32_t c)
+{
+    union {
+        uint64_t ll;
+        struct {
+#ifdef HOST_WORDS_BIGENDIAN
+            uint32_t high, low;
+#else
+            uint32_t low, high;
+#endif
+        } l;
+    } u, res;
+    uint64_t rl, rh;
+
+    u.ll = a;
+    rl = (uint64_t)u.l.low * (uint64_t)b;
+    rh = (uint64_t)u.l.high * (uint64_t)b;
+    rh += (rl >> 32);
+    res.l.high = rh / c;
+    res.l.low = (((rh % c) << 32) + (rl & 0xffffffff)) / c;
+    return res.ll;
+}
+*/
+///////////////////////////////////////////////////////
+
 #ifdef CONFIG_SYSLOG
 extern char use_syslog;
 
@@ -227,3 +394,4 @@ void log_perror(const char *s);
 #endif
 
 #endif
+

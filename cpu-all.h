@@ -914,6 +914,10 @@ static inline void cpu_register_physical_memory(target_phys_addr_t start_addr,
 
 ram_addr_t cpu_get_physical_page_desc(target_phys_addr_t addr);
 ram_addr_t qemu_ram_alloc(ram_addr_t);
+
+//skylark
+void *qemu_get_ram_ptr(ram_addr_t addr);
+
 void qemu_ram_free(ram_addr_t addr);
 int cpu_register_io_memory(int io_index,
                            CPUReadMemoryFunc *const *mem_read,

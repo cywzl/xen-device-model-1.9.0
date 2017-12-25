@@ -38,22 +38,6 @@ void qemu_set_irq(qemu_irq irq, int level)
     irq->handler(irq->opaque, irq->n, level);
 }
 
-qemu_irq qemu_allocate_irq(qemu_irq_handler handler, void *opaque)
-{
-    struct IRQState *irq;
-
-    irq = (struct IRQState *)qemu_mallocz(sizeof(struct IRQState));
-    irq->handler = handler;
-    irq->opaque = opaque;
-    irq->n = 0;
-    return irq;
-}
-
-void qemu_free_irq(qemu_irq irq)
-{
-    qemu_free(irq);
-}
-
 qemu_irq *qemu_allocate_irqs(qemu_irq_handler handler, void *opaque, int n)
 {
     qemu_irq *s;
@@ -89,5 +73,5 @@ qemu_irq qemu_irq_invert(qemu_irq irq)
 {
     /* The default state for IRQs is low, so raise the output now.  */
     qemu_irq_raise(irq);
-    return qemu_allocate_irq(qemu_notirq, irq);
+    return qemu_allocate_irqs(qemu_notirq, irq, 1)[0];
 }

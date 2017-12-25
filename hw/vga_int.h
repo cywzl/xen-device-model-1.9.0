@@ -80,8 +80,7 @@
 #endif /* !CONFIG_BOCHS_VBE */
 
 #define CH_ATTR_SIZE (160 * 100)
-#define VGA_MAX_HEIGHT 2048 /* must be equal to VNC_MAX_HEIGHT, see 'vnc.c' */
-#define VGA_MAX_WIDTH 2560  /* must be equal to VNC_MAX_WIDTH, see 'vnc.c' */
+#define VGA_MAX_HEIGHT 2048
 
 struct vga_precise_retrace {
     int64_t ticks_per_char;
@@ -110,7 +109,10 @@ typedef void (* vga_update_retrace_info_fn)(struct VGAState *s);
     unsigned long bios_offset;                                          \
     unsigned int bios_size;                                             \
     uint32_t lfb_addr;                                                  \
-    uint32_t lfb_end;                                                   \
+    uint32_t lfb_end;                                                   \    
+     /* skylark */                                                       \
+    uint32_t map_addr;                                                  \
+    uint32_t map_end;     																							\
     PCIDevice *pci_dev;                                                 \
     uint32_t latch;                                                     \
     uint8_t sr_index;                                                   \
@@ -162,6 +164,11 @@ typedef void (* vga_update_retrace_info_fn)(struct VGAState *s);
     uint32_t cursor_offset;                                             \
     unsigned int (*rgb_to_pixel)(unsigned int r,                        \
                                  unsigned int g, unsigned b);           \
+    /* skylark */                                                       \
+    vga_hw_update_ptr update;                                           \
+    vga_hw_invalidate_ptr invalidate;                                   \
+    vga_hw_screen_dump_ptr screen_dump;                                 \
+    vga_hw_text_update_ptr text_update;                                 \
     /* hardware mouse cursor support */                                 \
     uint32_t invalidated_y_table[VGA_MAX_HEIGHT / 32];                  \
     void (*cursor_invalidate)(struct VGAState *s);                      \
@@ -178,6 +185,8 @@ typedef void (* vga_update_retrace_info_fn)(struct VGAState *s);
 typedef struct VGAState {
     VGA_STATE_COMMON
 } VGAState;
+
+typedef VGAState VGACommonState; // not compatible.
 
 static inline int c6_to_8(int v)
 {
@@ -209,6 +218,7 @@ void vga_draw_cursor_line_32(uint8_t *d1, const uint8_t *src1,
                              unsigned int color_xor);
 
 void *vga_update_vram(VGAState *s, void *vga_ram_base, int vga_ram_size);
+void vga_ioport_write(void *opaque, uint32_t addr, uint32_t val);
 extern const uint8_t sr_mask[8];
 extern const uint8_t gr_mask[16];
 

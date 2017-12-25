@@ -591,6 +591,18 @@ OBJS+= fdc.o mc146818rtc.o serial.o i8259.o i8254.o pc.o
 OBJS+= cirrus_vga.o apic.o parallel.o acpi.o piix_pci.o
 OBJS+= usb-uhci.o vmmouse.o vmport.o vmware_vga.o hpet.o
 OBJS += device-hotplug.o pci-hotplug.o
+# spice qxl device
+ifeq ($(CONFIG_SPICE), y)
+CFLAGS += -I/usr/include/spice-1
+CFLAGS += -I/usr/include/spice-server
+OBJS += qxl.o
+OBJS += qxl-logger.o
+OBJS += qxl-render.o
+# virtio-serial
+#OBJS += sysbus.o
+# Spice VMC, a virtio-serial port.
+#OBJS += spice-vmc.o
+endif
 endif
 ifeq ($(TARGET_BASE_ARCH), ppc)
 CPPFLAGS += -DHAS_AUDIO -DHAS_AUDIO_CHOICE

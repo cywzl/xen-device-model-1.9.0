@@ -73,7 +73,7 @@ glue(cirrus_bitblt_rop_bkwd_, ROP_NAME)(CirrusVGAState *s,
                                         int bltwidth,int bltheight)
 {
     int x,y;
-    int32_t dst, src;
+    uint32_t dst, src;
     uint8_t *dst_base, *src_base;
     get_base(dst_, s, dst_base);
     get_base(src_, s, src_base);
@@ -82,7 +82,7 @@ glue(cirrus_bitblt_rop_bkwd_, ROP_NAME)(CirrusVGAState *s,
     dstpitch += bltwidth;
     srcpitch += bltwidth;
     for (y = 0; y < bltheight; y++) {
-        for (x = 0; x < bltwidth && dst >= 0 && src >= 0; x++) {
+        for (x = 0; x < bltwidth; x++) {
             ROP_OP(*(dst_base + m(dst)), *(src_base + m(src)));
             dst--;
             src--;
@@ -129,7 +129,7 @@ glue(glue(cirrus_bitblt_rop_bkwd_transp_, ROP_NAME),_8)(CirrusVGAState *s,
 {
     int x,y;
     uint8_t p;
-    int32_t dst, src;
+    uint32_t dst, src;
     uint8_t *dst_base, *src_base;
     get_base(dst_, s, dst_base);
     get_base(src_, s, src_base);
@@ -138,7 +138,7 @@ glue(glue(cirrus_bitblt_rop_bkwd_transp_, ROP_NAME),_8)(CirrusVGAState *s,
     dstpitch += bltwidth;
     srcpitch += bltwidth;
     for (y = 0; y < bltheight; y++) {
-        for (x = 0; x < bltwidth && dst >= 0 && src >= 0; x++) {
+        for (x = 0; x < bltwidth; x++) {
 	    p = *(dst_base + m(dst));
             ROP_OP(p, *(src_base + m(src)));
 	    if (p != s->gr[0x34]) *(dst_base + m(dst)) = p;
@@ -192,7 +192,7 @@ glue(glue(cirrus_bitblt_rop_bkwd_transp_, ROP_NAME),_16)(CirrusVGAState *s,
 {
     int x,y;
     uint8_t p1, p2;
-    int32_t dst, src;
+    uint32_t dst, src;
     uint8_t *dst_base, *src_base;
     get_base(dst_, s, dst_base);
     get_base(src_, s, src_base);
@@ -201,7 +201,7 @@ glue(glue(cirrus_bitblt_rop_bkwd_transp_, ROP_NAME),_16)(CirrusVGAState *s,
     dstpitch += bltwidth;
     srcpitch += bltwidth;
     for (y = 0; y < bltheight; y++) {
-        for (x = 0; x < bltwidth && dst > 0 && src > 0; x+=2) {
+        for (x = 0; x < bltwidth; x+=2) {
 	    p1 = *(dst_base + m(dst-1));
 	    p2 = *(dst_base + m(dst));
             ROP_OP(p1, *(src_base + m(src-1)));

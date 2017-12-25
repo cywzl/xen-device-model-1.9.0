@@ -2,6 +2,10 @@
 #define QEMU_CHAR_H
 
 #include "sys-queue.h"
+
+//skylark
+#include "qemu-common.h"
+
 /* character device */
 
 #define CHR_EVENT_BREAK 0 /* serial break char */
@@ -95,4 +99,7 @@ int qemu_set_fd_handler(int fd,
                         IOHandler *fd_write,
                         void *opaque);
 
+//skylark
+void qemu_chr_generic_open(CharDriverState *s);
 #endif
+

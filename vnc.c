@@ -345,6 +345,8 @@ static void vnc_init_timer(VncDisplay *vd);
 static void vnc_remove_timer(VncDisplay *vd);
 
 static void vnc_colordepth(VncState *vs);
+//skylark
+//extern char domain_name[64];
 static void framebuffer_update_request(VncState *vs, int incremental,
                                        int x_position, int y_position,
                                        int w, int h);
@@ -1762,16 +1764,6 @@ static void set_pixel_format(VncState *vs,
         return;
     }
 
-    switch (bits_per_pixel) {
-    case 8:
-    case 16:
-    case 32:
-        break;
-    default:
-        vnc_client_error(vs);
-        return;
-    }
-
     vs->clientds = *(vs->vd->guest.ds);
     vs->clientds.pf.rmax = red_max;
     count_bits(vs->clientds.pf.rbits, red_max);
@@ -2639,8 +2631,7 @@ static int vnc_refresh_server_surface(VncDisplay *vd)
             guest_ptr  = guest_row;
             server_ptr = server_row;
 
-            /* read/write 16 display pixels each iteration */
-            for (x = 0; x + 15 < vd->guest.ds->width;
+            for (x = 0; x < vd->guest.ds->width;
                     x += 16, guest_ptr += cmp_bytes, server_ptr += cmp_bytes) {
                 if (!dirty_get_bit(&vd->guest.dirty, x / 16, y))
                     continue;

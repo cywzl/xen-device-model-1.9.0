@@ -35,6 +35,7 @@ make="make"
 install="install"
 strip="strip"
 
+QEMU_LDFLAGS=" "
 # parse CC options first
 for opt do
   optarg=`expr "x$opt" : 'x[^=]*=\(.*\)'`
@@ -189,7 +190,7 @@ aix="no"
 blobs="yes"
 fdt="yes"
 sdl_x11="no"
-
+spice="yes"
 # OS specific
 if check_define __linux__ ; then
   targetos="Linux"
@@ -846,6 +847,18 @@ EOF
 fi
 
 ##########################################
+# spice libs
+export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/spice-xen/lib/pkgconfig:/usr/lib/pkgconfig:/usr/local/spice-xen/share/pkgconfig
+pkgconfig="${cross_prefix}pkg-config"
+if ! has $pkgconfig; then
+  # likely not cross compiling, or hope for the best
+  pkgconfig=pkg-config
+fi
+spice_libs=$($pkgconfig --libs spice-protocol spice-server 2>/dev/null)
+QEMU_LDFLAGS+=${spice_libs}
+ARCH_LDFLAGS+=${QEMU_LDFLAGS}
+
+##########################################
 # vde libraries probe
 if test "$vde" = "yes" ; then
   cat > $TMPC << EOF
@@ -1236,6 +1249,7 @@ echo "CFLAGS=$CFLAGS" >> $config_mak
 echo "LDFLAGS=$LDFLAGS" >> $config_mak
 echo "EXESUF=$EXESUF" >> $config_mak
 echo "AIOLIBS=$AIOLIBS" >> $config_mak
+echo "QEMU_LDFLAGS=$QEMU_LDFLAGS" >> $config_mak
 case "$cpu" in
   i386)
     echo "ARCH=i386" >> $config_mak
@@ -1497,7 +1511,9 @@ if test "$fdt" = "yes" ; then
   echo "#define HAVE_FDT 1" >> $config_h
   echo "FDT_LIBS=-lfdt" >> $config_mak
 fi
-
+if test "$spice" = "yes"; then
+  echo "#define CONFIG_SPICE 1" >> $config_h
+fi
 # XXX: suppress that
 if [ "$bsd" = "yes" ] ; then
   echo "#define O_LARGEFILE 0" >> $config_h

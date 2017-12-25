@@ -65,7 +65,8 @@ static void inet_setport(struct addrinfo *e, int port)
     }
 }
 
-static const char *inet_strfamily(int family)
+//static const char *inet_strfamily(int family)
+const char *inet_strfamily(int family)
 {
     switch (family) {
     case PF_INET6: return "ipv6";

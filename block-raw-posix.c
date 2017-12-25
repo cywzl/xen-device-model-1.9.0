@@ -612,7 +612,6 @@ static int posix_aio_init(void)
     s->first_aio = NULL;
     if (pipe(fds) == -1) {
         fprintf(stderr, "failed to create pipe\n");
-        qemu_free(s);
         return -errno;
     }
 

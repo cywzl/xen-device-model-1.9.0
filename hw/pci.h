@@ -246,6 +246,13 @@ struct PCIDevice {
 
     /* Current IRQ levels.  Used internally by the generic PCI code.  */
     int irq_state[4];
+    
+    /* romfile, rom_offset, rom_bar are added for skylark */
+    /* Location of option rom */
+    char *romfile;
+    ram_addr_t rom_offset;
+    uint32_t rom_bar;
+
 };
 
 extern char direct_pci_str[];

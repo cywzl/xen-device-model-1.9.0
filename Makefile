@@ -10,6 +10,7 @@ VPATH=$(SRC_PATH):$(SRC_PATH)/hw
 
 
 CFLAGS += $(OS_CFLAGS) $(ARCH_CFLAGS)
+#LDFLAGS += $(OS_LDFLAGS) $(ARCH_LDFLAGS) $(QEMU_LDFLAGS)
 LDFLAGS += $(OS_LDFLAGS) $(ARCH_LDFLAGS)
 
 CPPFLAGS += -I. -I$(SRC_PATH) -MMD -MP -MT $@
@@ -35,6 +36,9 @@ LIBS+=-lwinmm -lws2_32 -liphlpapi
 endif
 
 all: $(TOOLS) $(DOCS) recurse-all
+
+myecho:
+	echo "here:"$(LDFLAGS)
 
 SUBDIR_RULES=$(patsubst %,subdir-%, $(TARGET_DIRS))
 
@@ -183,6 +187,21 @@ curses.o: curses.c keymaps.c curses_keys.h
 
 bt-host.o: CFLAGS += $(CONFIG_BLUEZ_CFLAGS)
 
+OBJS+=qemu-error.o
+OBJS+=qemu-option.o
+OBJS+=qemu-config.o
+OBJS+=qjson.o json-lexer.o json-streamer.o json-parser.o
+OBJS+=qint.o qstring.o qdict.o qlist.o qfloat.o qbool.o
+OBJS+=pflib.o
+
+ifdef CONFIG_SPICE
+CFLAGS += -I/usr/include/spice-server
+CFLAGS += -I/usr/include/spice-1
+OBJS+=ui/spice-core.o # Highly coupled with qemu especially option module.
+OBJS+=ui/spice-input.o
+OBJS+=ui/spice-display.o 
+endif
+
 libqemu_common.a: $(OBJS)
 
 #######################################################################
@@ -205,6 +224,7 @@ clean:
 	rm -f config.mak config.h op-i386.h opc-i386.h gen-op-i386.h op-arm.h opc-arm.h gen-op-arm.h
 	rm -f *.o .*.d *.a $(TOOLS) TAGS cscope.* *.pod *~ */*~
 	rm -f slirp/*.o slirp/.*.d audio/*.o audio/.*.d
+	rm -f ui/*.o ui/*.d
 	$(MAKE) -C tests clean
 	for d in $(TARGET_DIRS); do \
 	$(MAKE) -C $$d $@ || exit 1 ; \

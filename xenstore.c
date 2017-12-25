@@ -24,6 +24,7 @@
 #include "qemu-xen.h"
 #include "xen_backend.h"
 #include "console.h"
+#include "xen_backend.h"
 #include "privsep.h"
 
 /* The token used to identify the keymap watch. */
@@ -144,7 +145,6 @@ int xenstore_watch_new_callback(const char          *path,
 }
 
 
-static int pasprintf(char **buf, const char *fmt, ...) __attribute__((format (__printf__, 2, 3)));
 static int pasprintf(char **buf, const char *fmt, ...)
 {
     va_list ap;
@@ -154,7 +154,7 @@ static int pasprintf(char **buf, const char *fmt, ...)
         free(*buf);
     va_start(ap, fmt);
     if (vasprintf(buf, fmt, ap) == -1) {
-        *buf = NULL;
+        buf = NULL;
         ret = -1;
     }
     va_end(ap);
@@ -346,7 +346,7 @@ static void xenstore_get_backend_path(char **backend, const char *devtype,
          *expected_devtype;
          expected_devtype++) {
     
-        if (pasprintf(&expected_backend, "%s/backend/%s/%u/%s",
+        if (pasprintf(&expected_backend, "%s/backend/%s/%lu/%s",
                       backend_dompath, *expected_devtype,
                       frontend_domid, inst_danger)
             == -1) goto out;
@@ -1544,7 +1544,6 @@ void xenstore_write_vncport(int display)
         fprintf(logfile, "xs_write() vncport failed\n");
 
  out:
-    free(path);
     free(portstr);
     free(buf);
 }
@@ -1898,9 +1897,9 @@ int store_dev_info(const char *devName, int domid,
     fprintf(logfile, "can't store dev %s name for domid %d in %s from a stub domain\n", devName, domid, storeString);
     return ENOSYS;
 #else
-    xc_interface *xc_handle = NULL;
-    struct xs_handle *xs = NULL;
-    char *path = NULL;
+    xc_interface *xc_handle;
+    struct xs_handle *xs;
+    char *path;
     char *newpath;
     char *pts;
     char namebuf[128];
@@ -1918,31 +1917,31 @@ int store_dev_info(const char *devName, int domid,
     }
     if (memcmp(namebuf, "pty ", 4)) return 0;
     pts = namebuf + 4;
-    ret = -1;
 
     /* We now have everything we need to set the xenstore entry. */
     xs = xs_daemon_open();
     if (xs == NULL) {
         fprintf(logfile, "Could not contact XenStore\n");
-        goto out;
+        return -1;
     }
 
     xc_handle = xc_interface_open(0,0,0);
     if (xc_handle == NULL) {
         fprintf(logfile, "xc_interface_open() error\n");
-        goto out;
+        return -1;
     }
 
     path = xs_get_domain_path(xs, domid);
     if (path == NULL) {
         fprintf(logfile, "xs_get_domain_path() error\n");
-        goto out;
+        return -1;
     }
     newpath = realloc(path, (strlen(path) + strlen(storeString) +
                              strlen("/tty") + 1));
     if (newpath == NULL) {
+        free(path); /* realloc errors leave old block */
         fprintf(logfile, "realloc error\n");
-        goto out;
+        return -1;
     }
     path = newpath;
 
@@ -1950,19 +1949,14 @@ int store_dev_info(const char *devName, int domid,
     strcat(path, "/tty");
     if (!xs_write(xs, XBT_NULL, path, pts, strlen(pts))) {
         fprintf(logfile, "xs_write for '%s' fail", storeString);
-        goto out;
+        return -1;
     }
 
-    ret = 0;
- out:
-
     free(path);
-    if (xs)
-        xs_daemon_close(xs);
-    if (xc_handle)
-        xc_interface_close(xc_handle);
+    xs_daemon_close(xs);
+    xc_interface_close(xc_handle);
 
-    return ret;
+    return 0;
 #endif
 }
 

@@ -88,10 +88,7 @@ static int nbd_open(BlockDriverState *bs, const char* filename, int flags)
 
     ret = nbd_receive_negotiate(sock, &size, &blocksize);
     if (ret == -1)
-    {
-        close(sock);
         return -errno;
-    }
 
     s->sock = sock;
     s->size = size;

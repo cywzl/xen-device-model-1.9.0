@@ -17,8 +17,8 @@ This package contains qemu-dm, the Xen device model.
 %patch0 -p1
 
 %build
-./xen-setup --disable-opengl --disable-vnc-tls --disable-blobs --disable-sdl --disable-bluez --enable-werror
-%{__make} CONFIG_BLKTAP1=n
+./xen-setup --disable-opengl --disable-vnc-tls --disable-blobs --disable-sdl --disable-werror
+%{__make} CONFIG_BLKTAP1=n CONFIG_SPICE=y
 %{__make} unittests
 
 %install

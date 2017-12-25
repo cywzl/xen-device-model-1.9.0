@@ -268,7 +268,7 @@ static void term_hist_add(const char *cmdline)
 	    new_entry = hist_entry;
 	    /* Put this entry at the end of history */
 	    memmove(&term_history[idx], &term_history[idx + 1],
-		    (TERM_MAX_CMDS - (idx + 1)) * sizeof(char *));
+		    (TERM_MAX_CMDS - idx + 1) * sizeof(char *));
 	    term_history[TERM_MAX_CMDS - 1] = NULL;
 	    for (; idx < TERM_MAX_CMDS; idx++) {
 		if (term_history[idx] == NULL)

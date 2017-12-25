@@ -55,6 +55,11 @@
 
 #define PC_MAX_BIOS_SIZE (4 * 1024 * 1024)
 
+#ifdef CONFIG_SPICE
+#define VGABIOS_QXL_FILENAME "vgabios-qxl.bin"
+#endif
+
+
 /* Leave a chunk of memory at the top of RAM for the BIOS ACPI tables.  */
 #define ACPI_DATA_SIZE       0x10000
 #define BIOS_CFG_IOPORT 0x510
@@ -68,6 +73,14 @@ void tpm_tis_init(SetIRQFunc *set_irq, void *opaque, int irq);
 
 extern uint8_t *acpi_tables;
 extern size_t acpi_tables_len;
+
+
+#ifdef CONFIG_SPICE
+extern int qxl_enabled;
+extern int qxl_num;
+extern int qxl_ram;
+#endif
+
 
 static fdctrl_t *floppy_controller;
 static RTCState *rtc_state;
@@ -801,6 +814,7 @@ static void pc_init1(ram_addr_t ram_size, int vga_ram_size,
     PCIBus *pci_bus;
     int piix3_devfn = -1;
     CPUState *env;
+    qemu_irq *cpu_irq;
     qemu_irq *i8259;
     int index;
     BlockDriverState *hd[MAX_IDE_BUS * MAX_IDE_DEVS];
@@ -969,7 +983,8 @@ vga_bios_error:
 
     bochs_bios_init();
 
-    i8259 = i8259_init(NULL);
+    cpu_irq = qemu_allocate_irqs(pic_irq_request, NULL, 1);
+    i8259 = i8259_init(cpu_irq[0]);
     ferr_irq = i8259[13];
 
     if (pci_enabled) {
@@ -990,13 +1005,7 @@ vga_bios_error:
 
     if (cirrus_vga_enabled) {
         if (pci_enabled) {
-	    int devfn = piix3_devfn + 8;
-	    if (gfx_passthru) {
-		/* gfx_passthru option moves device from 02:00 to 0C:00
-		   emulated NIC use device's 04:00 through to 0B:00 */
-		devfn = (0xc * 8);
-	    }
-	    pci_cirrus_vga_init(pci_bus, devfn,
+	    pci_cirrus_vga_init(pci_bus, piix3_devfn + 8,
                                 phys_ram_base + vga_ram_addr,
                                 vga_ram_addr, vga_ram_size);
         } else {
@@ -1014,19 +1023,24 @@ vga_bios_error:
 #endif
     } else if (std_vga_enabled) {
         if (pci_enabled) {
-	    int devfn = piix3_devfn + 8;
-	    if (gfx_passthru) {
-		/* gfx_passthru option moves device from 02:00 to 0C:00
-		   emulated NIC use device's 04:00 through to 0B:00 */
-		devfn = (0xc * 8);
-	    }
-	    pci_vga_init(pci_bus, devfn,
+	    pci_vga_init(pci_bus, piix3_devfn + 8,
 			 phys_ram_base + vga_ram_addr,
                          vga_ram_addr, vga_ram_size, 0, 0);
         } else {
             isa_vga_init(phys_ram_base + vga_ram_addr,
                          vga_ram_addr, vga_ram_size);
         }
+        #ifdef CONFIG_SPICE
+    		} else if (qxl_enabled) {
+        	if (pci_enabled) {
+            fprintf(stderr, "%s:phys_ram_base=%llx:vga_ram_addr=%llx:vga_ram_size=%d\n", __FUNCTION__, phys_ram_base, vga_ram_addr, vga_ram_size);
+
+            qxl_init(pci_bus, phys_ram_base + vga_ram_addr,
+                         vga_ram_addr, vga_ram_size);
+        	} else {
+            fprintf(stderr, "qxl dev: no PCI bus\n");
+        	}
+				#endif
     } else if (vgpu_enabled) {
         vgpu_fb_init();
     }
